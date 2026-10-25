@@ -95,6 +95,7 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 					continue
 				}
 				for _, t := range ts {
+					t = wrapScopeSentryAutoStart(t, m.Name, m.URL)
 					extra = append(extra, t)
 					allNames = append(allNames, t.Name())
 					serverTools[m.Name] = append(serverTools[m.Name], t.Name())
