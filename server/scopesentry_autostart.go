@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Autumn-27/norma/llm"
 	actool "github.com/Autumn-27/norma/tool"
 )
 
@@ -75,6 +76,40 @@ func restBaseFromMCP(mcpURL string) (string, bool) {
 		return "", false
 	}
 	return u.Scheme + "://" + u.Host, true
+}
+
+// statusNote is appended to every get_task result. ScopeSentry leaves
+// task.status at 1 while the node is already executing, so an agent that reads
+// "status 1" as "not started" polls forever. The note states the real meaning.
+const statusNote = "[status semantics] ScopeSentry task.status: 1 = queued, and the " +
+	"DB status lags — the node may already be executing it. 2 = running. 3 = finished. " +
+	"Treat 1 and 2 BOTH as in-progress; only 3 means done. Never conclude \"not started\" " +
+	"from status=1 alone."
+
+// annotateTool appends a fixed note to a tool's successful result.
+type annotateTool struct {
+	actool.CoreTool
+	note string
+}
+
+func (w *annotateTool) Call(ctx context.Context, input json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
+	res, err := w.CoreTool.Call(ctx, input, tc)
+	if err != nil || res.IsError {
+		return res, err
+	}
+	res.Content = append(res.Content, llm.TextBlock("\n\n"+w.note))
+	return res, nil
+}
+
+// wrapScopeSentryGetTask annotates get_task with the status semantics.
+func wrapScopeSentryGetTask(t actool.CoreTool, srvName string) actool.CoreTool {
+	if t == nil || srvName != "ScopeSentry" {
+		return t
+	}
+	if t.Name() != "mcp__ScopeSentry__get_task" {
+		return t
+	}
+	return &annotateTool{CoreTool: t, note: statusNote}
 }
 
 func (w *autoStartTool) Call(ctx context.Context, input json.RawMessage, tc *actool.ToolContext) (actool.Result, error) {
